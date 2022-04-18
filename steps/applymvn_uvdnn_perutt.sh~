@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# author: Josué Fredes, jfredes@u.uchile.cl
+
+# To be run from .. (one directory up from here)
+# see ../run.sh for example
+
+# Begin configuration section.
+cmd=run.pl
+nj=4
+compress=true
+cmvn_opts="--verbose=2"
+# End configuration section.
+
+echo "$0 $@"  # Print the command line for logging
+
+if [ -f path.sh ]; then . ./path.sh; fi
+. parse_options.sh || exit 1;
+
+if [ $# != 4 ]; then
+   echo "usage: $0 [options] <src-data-dir> <dest-data-dir> <log-dir> <path-to-storage-dir>";
+   echo "e.g.: $0 data/train_mfcc data/train_bottleneck data/train_combined exp/append_mfcc_plp mfcc"
+   echo "options: "
+   echo "  --cmd (utils/run.pl|utils/queue.pl <queue opts>) # how to run jobs."
+   exit 1;
+fi
+
+data_src=$1
+data=$2
+logdir=$3
+ark_dir=$4
+
+utils/split_data_uvdnn_perutt.sh $data_src $nj || exit 1;
+
+mkdir -p $ark_dir $logdir
+mkdir -p $data 
+
+cp $data_src/* $data/ 2>/dev/null 
+rm $data/cmvn.scp 2>/dev/null 
+rm $data/feats.scp 2>/dev/null 
+
+# use "name" as part of name of the archive.
+name=`basename $data`
+
+$cmd JOB=1:$nj $logdir/applymvn.JOB.log \
+  apply-cmvn $cmvn_opts scp:$data_src/split$nj/JOB/cmvn.scp scp:$data_src/split$nj/JOB/feats.scp ark:- \| \
+  copy-feats --compress=true ark:- ark,scp:$ark_dir/addmvn_$name.JOB.ark,$ark_dir/addmvn_$name.JOB.scp \
+  || exit 1;
+
+# concatenate the .scp files together.
+for ((n=1; n<=nj; n++)); do
+  cat $ark_dir/addmvn_$name.$n.scp >> $data/feats.scp || exit 1;
+done > $data/feats.scp || exit 1;
+
+for x in noisyfeats uncert normenergy; do  
+  $cmd JOB=1:$nj $logdir/applymvn.JOB.log \
+  apply-cmvn $cmvn_opts scp:$data_src/split$nj/JOB/cmvn_${x}.scp scp:$data_src/split$nj/JOB/${x}.scp ark:- \| \
+  copy-feats --compress=true ark:- ark,scp:$ark_dir/addmvn_${x}_$name.JOB.ark,$ark_dir/addmvn_${x}_$name.JOB.scp \
+  || exit 1;
+  
+  # concatenate the .scp files together.
+    for ((n=1; n<=nj; n++)); do
+      cat $ark_dir/addmvn_${x}_$name.$n.scp >> $data/${x}.scp || exit 1;
+    done > $data/${x}.scp || exit 1;
+done
+              
+
+
+
+nf=`cat $data/feats.scp | wc -l` 
+nu=`cat $data/utt2spk | wc -l` 
+if [ $nf -ne $nu ]; then
+  echo "It seems not all of the feature files were successfully processed ($nf != $nu);"
+  echo "consider using utils/fix_data_dir.sh $data"
+fi
+
+echo "Succeeded adding mn and deltas for $name into $data"
