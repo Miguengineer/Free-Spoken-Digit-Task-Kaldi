@@ -5,6 +5,9 @@ This project uses the Kaldi toolkit (https://kaldi-asr.org/) to build an HMM-GMM
 
 See https://www.kaggle.com/datasets/joserzapata/free-spoken-digit-dataset-fsdd section About.
 
+A quick data visualization is provided in the Jupyter Notebook ([here](https://github.com/Miguengineer/Free-Spoken-Digit-Task-Kaldi/blob/main/QuickDataVisualization.ipynb)
+)
+
 
 ## Preprocessing
 
